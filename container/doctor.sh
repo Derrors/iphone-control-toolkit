@@ -60,7 +60,7 @@ if check; then
 else skip "隧道和开发者镜像"; fi
 
 echo "== Apple ID 与签名"
-if plumesign account list 2>/dev/null | grep -q '(selected)'; then ok "已登录 Apple ID"; else
+if plumesign account list 2>&1 | grep -q '(selected)'; then ok "已登录 Apple ID"; else
   bad "没有登录 Apple ID" "" "iphonectl login"; fi
 
 bundle=$(wda_bundle)

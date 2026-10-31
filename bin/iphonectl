@@ -139,7 +139,7 @@ cmd_setup() {
     || hint "挂载失败,稍后 supervisor 会重试;解锁手机后可再运行 iphonectl setup"
 
   say "[6/9] 登录 Apple ID"
-  if inc plumesign account list 2>/dev/null | grep -q '(selected)'; then hint "已登录"; else
+  if inc plumesign account list 2>&1 | grep -q '(selected)'; then hint "已登录"; else
     hint "建议用一个专门的免费 Apple ID,不要用主账号。" \
          "密码和双重认证验证码只在这里输入,由 plumesign 发给苹果;它还会请求第三方 anisette 服务生成设备标识。"
     local email

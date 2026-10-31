@@ -30,7 +30,7 @@ fi
 
 UDID=$(udid)
 [ -n "$UDID" ] || alert "手机未连接"
-plumesign account list 2>/dev/null | grep -q '(selected)' \
+plumesign account list 2>&1 | grep -q '(selected)' \
   || alert "还没有登录 Apple ID,或登录已失效:运行 iphonectl login"
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
