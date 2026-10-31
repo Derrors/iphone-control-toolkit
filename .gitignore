@@ -1,0 +1,15 @@
+# 本地配置和数据:含通知密钥、配对记录、Apple ID 登录状态、开发私钥、证书、锁屏密码
+.env
+data/
+*.p12
+*.mobileprovision
+*.pem
+passcode
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/

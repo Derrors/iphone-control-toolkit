@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# iphone-control-toolkit 的宿主机命令行。用法见 iphonectl help。
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+cd "$ROOT"
+
+env_get() { [ -f .env ] && sed -n "s/^$1=//p" .env | tail -n 1 | sed -e 's/[[:space:]]*#.*$//' -e 's/^"\(.*\)"$/\1/' || true; }
+C=$(env_get CONTAINER_NAME); C=${C:-iphone-control-toolkit}
+DATA=$(env_get DATA_DIR); DATA=${DATA:-./data}
+PORT=$(env_get WDA_PORT); PORT=${PORT:-8100}
+
+say()  { printf '\033[1m%s\033[0m\n' "$*"; }
+hint() { printf '  %s\n' "$@"; }
+die()  { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
+
+compose() { docker compose --project-directory "$ROOT" "$@"; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$C" 2>/dev/null)" = true ]; }
+need_running() { running || die "容器 $C 没在运行:先 iphonectl up"; }
+inc()  { docker exec "$C" "$@"; }
+inct() { docker exec -it "$C" "$@"; }
+in_udid() { inc sh -c '. /opt/ictl/lib.sh; udid'; }
+
+# 每隔 interval 秒执行一次 cmd,直到成功或超时;等待期间提示用户
+wait_for() {
+  local timeout=$1 interval=$2; shift 2
+  local start; start=$(date +%s)
+  until "$@" >/dev/null 2>&1; do
+    [ $(( $(date +%s) - start )) -ge "$timeout" ] && return 1
+    sleep "$interval"
+  done
+}
+
+ensure_env() {
+  if [ ! -f .env ]; then
+    cp .env.example .env
+    say "已从 .env.example 生成 .env,请按需修改(代理、通知等),修改后重新运行。"
+    hint "所有项都有默认值,不改也能跑。"
+  fi
+  mkdir -p "$DATA"
+}
+
+cmd_up()      { ensure_env; compose up -d --build; }
+cmd_down()    { compose down; }
+cmd_restart() { compose restart; }
+cmd_build()   { compose build; }
+cmd_doctor()  { need_running; inc /opt/ictl/doctor.sh; }
+cmd_shell()   { need_running; inct bash; }
+cmd_login()   { need_running; inct plumesign account login "$@"; }
+cmd_resign()  { need_running; inc /opt/ictl/resign-wda.sh "$@"; }
+cmd_notify_test() { need_running; inc /opt/ictl/notify.sh --test; }
+cmd_unlock_reset() { need_running; inc rm -f /data/logs/UNLOCK-DISABLED; say "已恢复自动解锁"; }
+
+cmd_status() {
+  compose ps
+  echo
+  tail -n 15 "$DATA/logs/supervisor.log" 2>/dev/null || echo "(还没有日志)"
+}
+
+cmd_logs() {
+  local name=${1:-supervisor} follow=${2:-}
+  local f="$DATA/logs/$name.log"
+  [ -f "$f" ] || die "没有 $f;可选:$(find "$DATA/logs" -name "*.log" -printf "%f " 2>/dev/null | sed "s/\.log//g")"
+  if [ "$follow" = "-f" ]; then tail -f "$f"; else tail -n 50 "$f"; fi
+}
+
+cmd_passcode() {
+  need_running
+  case ${1:-} in
+    set)
+      say "自动解锁:锁屏后,MCP 操作前会用这个密码解锁手机。"
+      hint "风险:能登录这台机器、或能调用这个 MCP 的人,都能解锁你的手机。" \
+           "保护:每按一位都核对;整串输完仍锁着就停用自动解锁并推送通知,不会累计输错。" \
+           "只支持纯数字密码。手机重启后的首次解锁仍需人工。"
+      local p
+      read -rsp "锁屏密码(输入不显示): " p; echo
+      [[ $p =~ ^[0-9]{4,}$ ]] || die "只支持 4 位以上的纯数字密码"
+      printf '%s' "$p" | docker exec -i "$C" sh -c 'umask 077; cat > /data/secrets/passcode'
+      say "已保存。别忘了在手机上把「自动锁定」从「永不」改回较短时间。" ;;
+    clear)
+      inc rm -f /data/secrets/passcode
+      say "已删除锁屏密码,自动解锁关闭。" ;;
+    *) die "用法: iphonectl passcode set|clear" ;;
+  esac
+}
+
+cmd_mcp() {
+  local add=(claude mcp add iphone -s user -- docker exec -i "$C" /opt/ictl/mcp-server.sh)
+  if [ "${1:-}" = install ]; then
+    command -v claude >/dev/null || die "没找到 claude 命令"
+    "${add[@]}"
+  else
+    say "注册到 Claude Code(用户级):"
+    hint "${add[*]}"
+    hint "或直接运行:iphonectl mcp install"
+  fi
+}
+
+# 在容器里跑真机回归测试:iphonectl test-device '<JSON 步骤>',见 docs/development.md
+cmd_test_device() {
+  need_running
+  docker exec -i "$C" /opt/mcp/bin/python -I - "$@" < tests/device/client.py
+}
+
+cmd_setup() {
+  ensure_env
+  say "[1/9] 构建并启动容器"
+  compose up -d --build
+  wait_for 30 2 running || die "容器没起来:docker logs $C"
+
+  say "[2/9] 等待手机连接"
+  if [ -z "$(in_udid)" ]; then
+    hint "用数据线把 iPhone 接到这台机器,并解锁手机。"
+    wait_for 600 5 test -n "$(in_udid)" || true
+    [ -n "$(in_udid)" ] || die "10 分钟内没检测到手机"
+  fi
+  local udid; udid=$(in_udid)
+  hint "手机 $udid"
+
+  say "[3/9] 配对"
+  if inc test -f "/var/lib/lockdown/$udid.plist"; then hint "已配对"; else
+    hint "手机上会弹出「要信任此电脑吗?」:点「信任」,再输入锁屏密码。"
+    wait_for 300 5 sh -c "docker exec $C idevicepair -u $udid pair | grep -q SUCCESS" || die "5 分钟内没完成配对"
+    hint "配对成功"
+  fi
+
+  say "[4/9] 开发者模式"
+  if [ "$(inc pymobiledevice3 amfi developer-mode-status 2>/dev/null | tail -n 1)" = true ]; then hint "已打开"; else
+    inc pymobiledevice3 amfi reveal-developer-mode >/dev/null 2>&1 || true
+    hint "请在手机上:设置 → 隐私与安全性 → 开发者模式 → 打开 → 重新启动;" \
+         "重启后解锁,在弹窗里点「打开」并输入密码。手机重启期间连接会断开,会自动恢复。"
+    wait_for 900 10 sh -c "docker exec $C pymobiledevice3 amfi developer-mode-status 2>/dev/null | tail -n 1 | grep -qx true" \
+      || die "15 分钟内没检测到开发者模式打开"
+    hint "已打开"
+  fi
+
+  say "[5/9] 挂载开发者镜像(手机要保持解锁;首次要下载,可能要一两分钟)"
+  inc timeout 300 pymobiledevice3 mounter auto-mount --udid "$udid" 2>&1 | tail -n 1 \
+    || hint "挂载失败,稍后 supervisor 会重试;解锁手机后可再运行 iphonectl setup"
+
+  say "[6/9] 登录 Apple ID"
+  if inc plumesign account list 2>/dev/null | grep -q '(selected)'; then hint "已登录"; else
+    hint "建议用一个专门的免费 Apple ID,不要用主账号。" \
+         "密码和双重认证验证码只在这里输入,由 plumesign 发给苹果;它还会请求第三方 anisette 服务生成设备标识。"
+    local email
+    read -rp "Apple ID 邮箱: " email
+    inct plumesign account login -u "$email"
+  fi
+
+  say "[7/9] 把手机注册到 Apple ID 的开发者设备列表"
+  if inc plumesign account devices 2>&1 | grep -q "$udid"; then hint "已注册"; else
+    inct plumesign account register-device -u "$udid" -n "iphone-control-${udid: -6}"
+  fi
+
+  say "[8/9] 签名 WDA 并安装到手机"
+  inc /opt/ictl/resign-wda.sh --force
+
+  say "[9/9] 等待 WDA 启动"
+  hint "首次安装:在手机 设置 → 通用 → VPN 与设备管理 里找到你的 Apple ID,点「信任」(需要联网)。" \
+       "如果弹出「为 XCTest 输入 iPhone 密码」,输入锁屏密码。"
+  if wait_for 600 10 docker exec "$C" sh -c "curl -s -m 5 http://127.0.0.1:$PORT/status | grep -Eq '\"ready\" ?: ?true'"; then
+    hint "WDA 就绪"
+  else
+    hint "10 分钟内 WDA 没就绪,运行 iphonectl doctor 看看卡在哪"
+  fi
+
+  echo
+  say "可选设置"
+  hint "通知(重签失败、手机离线、需要输密码时提醒):在 .env 填 TG_* 或 BARK_*,然后 iphonectl restart && iphonectl notify-test" \
+       "自动解锁(手机可以正常锁屏):iphonectl passcode set" \
+       "注册到 Claude Code:iphonectl mcp install"
+  echo
+  inc /opt/ictl/doctor.sh || true
+}
+
+usage() {
+  cat <<EOF
+用法: iphonectl <命令> [参数]
+
+首次使用
+  setup               引导完成配对、开发者模式、Apple ID 登录、签名安装 WDA(可重复运行)
+
+日常
+  status              容器状态和最近的守护日志
+  doctor              逐层诊断,每项失败都给出修复办法
+  logs [名字] [-f]     看日志:supervisor(默认)/wda/tunnel/resign/notify/usbmuxd/forward/mount
+  resign [--force]    检查描述文件,快过期就重签;--force 立即重签
+  login               重新登录 Apple ID(登录过期时)
+  notify-test         发一条测试通知
+  passcode set|clear  设置/删除锁屏密码(自动解锁)
+  unlock-reset        自动解锁因输错被停用后,核对密码再恢复
+  mcp [install]       显示/执行注册到 Claude Code 的命令
+
+容器
+  up | down | restart | build | shell
+
+开发
+  test-device '<JSON 步骤>'   在真机上依次调用 MCP 工具
+EOF
+}
+
+cmd=${1:-help}; shift || true
+case $cmd in
+  setup|up|down|restart|build|status|doctor|logs|resign|login|shell|passcode|mcp)
+    "cmd_$cmd" "$@" ;;
+  notify-test) cmd_notify_test ;;
+  unlock-reset) cmd_unlock_reset ;;
+  test-device) cmd_test_device "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac
