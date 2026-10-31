@@ -10,6 +10,7 @@
 | 隧道报 `PasswordProtected` | 手机锁屏时不给建隧道 | 解锁手机;隧道 90 秒没建起来会自动重启 |
 | `ios tunnel` 失败一次后不再重试 | go-ios 的行为 | supervisor 会重启它 |
 | 宿主机重启后容器没起来 | 偶发,原因未确认 | `iphonectl up`;建议用 `iphonectl status` 确认 |
+| `lsusb` 里没有 iPhone,内核日志也没有任何 USB 事件 | 线或接口没接通,或者是只能充电的线 | 换口、换一根能传数据的线;手机屏幕应显示正在充电 |
 
 ## WebDriverAgent
 
@@ -17,6 +18,7 @@
 |---|---|---|
 | `Failed to load the test bundle (Error 103)` | `.xctest` 插件没签名。plumesign 签名会漏掉它 | 本项目用 go-ios 签名,不会出现;自己签时注意 |
 | `Timed out while enabling automation mode` | 手机重启后首次启用 UI 自动化,要在「为 XCTest 输入 iPhone 密码」弹窗里输锁屏密码 | 在手机上输;弹窗关掉的话 1 分钟内会重新弹出;配了通知会推送提醒 |
+| 输完 XCTest 密码后,下一次启动报 `cannot initiate a IDE session`(超时) | go-ios 的行为,手机刚完成授权时偶发 | 不用处理,supervisor 约 1 分钟后重试即恢复 |
 | WDA 装好了但起不来 | 没在手机上信任开发者 | 设置 → 通用 → VPN 与设备管理 → 信任 |
 | 容器刚重启时 WDA 显示就绪,几十秒后又挂了 | 手机上残留的旧 WDA 还在响应,随后自己退出 | supervisor 只在本机 runwda 进程存在时才认就绪,会立即重启 WDA |
 | 读元素树很慢(7~8 秒) | WDA 计算每个元素的可见性 | MCP 已经排除这些属性(约 0.3 秒),按坐标判断可见性 |
