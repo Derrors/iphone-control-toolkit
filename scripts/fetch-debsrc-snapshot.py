@@ -11,8 +11,8 @@ import urllib.parse
 import urllib.request
 
 name, version, out = sys.argv[1:4]
-api = "https://snapshot.debian.org/mr/package/{}/{}/srcfiles?fileinfo=1".format(
-    urllib.parse.quote(name), urllib.parse.quote(version))
+quote = urllib.parse.quote
+api = f"https://snapshot.debian.org/mr/package/{quote(name)}/{quote(version)}/srcfiles?fileinfo=1"
 with urllib.request.urlopen(api, timeout=60) as r:
     info = json.load(r)
 
