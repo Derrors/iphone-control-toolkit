@@ -1,5 +1,6 @@
 services:
   iphone:
+    # 只在镜像名以 :local 结尾时由 iphonectl 触发构建(见 bin/iphonectl 的 local_build)
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -7,7 +8,8 @@ services:
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
-    image: ${IMAGE:-iphone-control-toolkit:local}
+    # 默认用发布在 GHCR 的镜像;想从源码自己构建,在 .env 里设 IMAGE=iphone-control-toolkit:local
+    image: ${IMAGE:-ghcr.io/derrors/iphone-control-toolkit:latest}
     container_name: ${CONTAINER_NAME:-iphone-control-toolkit}
     # 要直接访问 USB 设备;隧道走用户态网络栈,不建内核网卡、不改宿主机网络
     privileged: true

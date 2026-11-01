@@ -40,10 +40,18 @@ ensure_env() {
   mkdir -p "$DATA"
 }
 
-cmd_up()      { ensure_env; compose up -d --build; }
+# 镜像名以 :local 结尾就从源码构建,否则拉取发布的镜像
+IMAGE=$(env_get IMAGE); IMAGE=${IMAGE:-ghcr.io/derrors/iphone-control-toolkit:latest}
+local_build() { [[ $IMAGE == *:local ]]; }
+start() {
+  if local_build; then compose up -d --build; else compose pull -q && compose up -d; fi
+}
+
+cmd_up()      { ensure_env; start; }
 cmd_down()    { compose down; }
 cmd_restart() { compose restart; }
 cmd_build()   { compose build; }
+cmd_pull()    { compose pull; }
 cmd_doctor()  { need_running; inc /opt/ictl/doctor.sh; }
 cmd_shell()   { need_running; inct bash; }
 cmd_login()   { need_running; inct plumesign account login "$@"; }
@@ -104,8 +112,8 @@ cmd_test_device() {
 
 cmd_setup() {
   ensure_env
-  say "[1/9] 构建并启动容器"
-  compose up -d --build
+  if local_build; then say "[1/9] 从源码构建并启动容器(首次约 5~10 分钟)"; else say "[1/9] 拉取镜像并启动容器"; fi
+  start
   wait_for 30 2 running || die "容器没起来:docker logs $C"
 
   say "[2/9] 等待手机连接"
@@ -192,7 +200,8 @@ usage() {
   mcp [install]       显示/执行注册到 Claude Code 的命令
 
 容器
-  up | down | restart | build | shell
+  up | down | restart | pull | build | shell
+                      up 会拉取发布的镜像;.env 里 IMAGE=iphone-control-toolkit:local 时改为本地构建
 
 开发
   test-device '<JSON 步骤>'   在真机上依次调用 MCP 工具
@@ -201,7 +210,7 @@ EOF
 
 cmd=${1:-help}; shift || true
 case $cmd in
-  setup|up|down|restart|build|status|doctor|logs|resign|login|shell|passcode|mcp)
+  setup|up|down|restart|pull|build|status|doctor|logs|resign|login|shell|passcode|mcp)
     "cmd_$cmd" "$@" ;;
   notify-test) cmd_notify_test ;;
   unlock-reset) cmd_unlock_reset ;;

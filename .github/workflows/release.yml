@@ -1,0 +1,148 @@
+name: Release
+
+# 打 v* tag 时:构建并推送镜像到 GHCR,收集 GPL/LGPL 组件的对应源码,创建 GitHub Release。
+#   git tag -a v0.1.0 -m "说明" && git push origin v0.1.0
+# 注释 tag 的说明文字会作为 Release 正文。
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -x container/*.sh bin/iphonectl scripts/*.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest pillow ruff
+      - run: ruff check src tests scripts
+      - run: pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR 的镜像名必须小写
+      - id: name
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=iphone-control-toolkit
+            org.opencontainers.image.description=Drive a real iPhone from Linux and expose it to AI agents over MCP
+            org.opencontainers.image.licenses=MIT
+
+      # 先只发布 amd64:arm64 还没在真机上测过
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  sources:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect corresponding source
+        run: |
+          image="${{ needs.image.outputs.image }}@${{ needs.image.outputs.digest }}"
+          docker pull "$image"
+          scripts/collect-sources.sh "$image" release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sources
+          path: release-assets/
+          retention-days: 1
+
+  release:
+    needs: [image, sources]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sources
+          path: release-assets/
+
+      - name: Release notes
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          notes="${RUNNER_TEMP}/notes.md"
+          if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" = tag ]; then
+            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > "$notes"
+          else
+            : > "$notes"
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          {
+            printf '\n## Container image\n\n'
+            printf '```\ndocker pull %s:%s\n```\n\n' "$IMAGE" "$version"
+            printf 'Digest: `%s` (linux/amd64). Verify provenance with\n' "$DIGEST"
+            printf '`gh attestation verify oci://%s:%s -R %s`.\n\n' "$IMAGE" "$version" "$GITHUB_REPOSITORY"
+            printf '## Third-party source code\n\n'
+            printf 'The image contains GPL and LGPL components (pymobiledevice3, usbmuxd, libimobiledevice and others).\n'
+            printf 'Their complete corresponding source is attached to this release — see `SOURCES.md`.\n'
+          } >> "$notes"
+          cat "$notes"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          body_path: ${{ runner.temp }}/notes.md
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

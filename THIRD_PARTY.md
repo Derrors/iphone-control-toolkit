@@ -18,11 +18,22 @@
 pymobiledevice3 和 Python 间接依赖的完整版本清单见 `docker/constraints-pmd3.txt`、`docker/constraints-mcp.txt`。
 上游许可证原文在镜像的 `/usr/share/licenses/` 和各 Python 包的 `dist-info` 目录里。
 
-## GPL 组件说明
+## GPL 组件和对应源码
 
-pymobiledevice3 和 usbmuxd 是 GPL-3.0,作为独立程序随镜像分发、通过命令行调用。
-本仓库只发布 Dockerfile,镜像由使用者自己构建;如果你分发构建好的镜像,需要同时提供这些 GPL 组件
-对应版本的源码(上表的来源地址和版本即可定位)。
+pymobiledevice3、usbmuxd 等是 GPL/LGPL 组件,作为独立程序随镜像分发、通过命令行调用。
+
+发布的镜像 `ghcr.io/derrors/iphone-control-toolkit` 由 GitHub Actions 从本仓库构建
+(`.github/workflows/release.yml`)。**每个 Release 都附上镜像里所有第三方组件的完整对应源码**,
+由 `scripts/collect-sources.sh` 生成:
+
+| 附件 | 内容 |
+|---|---|
+| `sources-debian.tar` | 镜像里每个 Debian 软件包的源码包 |
+| `sources-python.tar` | 镜像里每个 Python 包的源码发行版 |
+| `sources-upstream.tar` | go-ios、Impactor、pymobiledevice3 按锁定版本打包的源码 |
+| `SOURCES.md` | 上述全部组件和版本的清单 |
+
+自己分发构建好的镜像时,同样需要提供这些源码,可以用 `scripts/collect-sources.sh <镜像> <目录>` 生成。
 
 ## 不包含、也不能包含的东西
 

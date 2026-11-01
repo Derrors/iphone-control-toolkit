@@ -14,12 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x container/*.sh bin/iphonectl
+        run: shellcheck -x container/*.sh bin/iphonectl scripts/*.sh
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: ruff
-        run: pip install ruff && ruff check src tests
+        run: pip install ruff && ruff check src tests scripts
 
   unit:
     runs-on: ubuntu-latest

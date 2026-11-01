@@ -14,6 +14,7 @@ src/iphone_mcp/        MCP 服务
   unlock.py            自动解锁
   server.py            MCP 工具定义
 docker/                Dockerfile 和 Python 依赖锁定
+scripts/               发布用:收集 GPL/LGPL 组件的对应源码
 tests/unit/            不碰设备的单元测试
 tests/device/          真机回归测试
 ```
@@ -54,3 +55,16 @@ go-ios 的 `sign app`、`ui` 等命令只在 main 分支,没进正式版,所以�
 
 plumesign 申请描述文件时会把 WDA 的 Bundle ID 改成 `com.facebook.WebDriverAgentRunner.xctrunner.<团队 ID>`。
 这个值在首次签名后写入 `data/state/wda-bundle`,supervisor 和诊断都从这里读。
+
+## 发布
+
+打注释 tag 并推送,`.github/workflows/release.yml` 会构建镜像推到 `ghcr.io/derrors/iphone-control-toolkit`,
+收集第三方组件的对应源码,创建 GitHub Release:
+
+```bash
+git tag -a v0.1.0 -m "这一版的说明(会作为 Release 正文)"
+git push origin v0.1.0
+```
+
+带 `-` 的版本(如 `v0.2.0-rc.1`)发布为预发布版,不更新 `latest` 标签。
+本地检查源码收集:`scripts/collect-sources.sh <镜像> <输出目录>`。
