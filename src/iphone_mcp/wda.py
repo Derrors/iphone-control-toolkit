@@ -46,13 +46,20 @@ def request(method, path, body=None, timeout=30):
 _sid = None
 
 
+def _open_session(join_existing):
+    """WDA has a single session and opening one ends the current one (e.g. iphonectl viewer's), so join it first."""
+    if join_existing and (sid := request("GET", "/status").get("sessionId")):
+        return sid
+    r = request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})
+    return r.get("sessionId") or r["value"]["sessionId"]
+
+
 def session(method, path, body=None, timeout=30):
     """带会话的 WDA 请求;WDA 重启后旧会话失效,自动重建一次。"""
     global _sid
     for attempt in range(2):
         if _sid is None:
-            r = request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})
-            _sid = r.get("sessionId") or r["value"]["sessionId"]
+            _sid = _open_session(join_existing=attempt == 0)
         try:
             return request(method, f"/session/{_sid}{path}", body, timeout)
         except WDAError as e:
