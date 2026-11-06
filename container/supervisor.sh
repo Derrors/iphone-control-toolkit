@@ -31,11 +31,23 @@ start_tunnel() {
   log "隧道已(重新)启动"
 }
 # 不用 ios forward:它监听所有网卡,而 WDA 没有认证;pymobiledevice3 的转发默认只绑 127.0.0.1
-start_forward() {
-  pkill -f 'usbmux forward'; sleep 1
-  pymobiledevice3 usbmux forward --udid "$UDID" "$WDA_PORT" "$WDA_PORT" >> "$LOG_DIR/forward.log" 2>&1 &
-  fwd_udid=$UDID
-  log "端口转发 127.0.0.1:$WDA_PORT 已启动"
+# One forward process per port, identified by UDID and port: restarted when the phone changes, independent of each other.
+ensure_forward() {
+  [ "$1" -gt 0 ] || return 0
+  running "usbmux forward --udid $UDID $1 $1\$" && return 0
+  pkill -f "usbmux forward --udid .* $1 $1\$"; sleep 1
+  pymobiledevice3 usbmux forward --udid "$UDID" "$1" "$1" >> "$LOG_DIR/forward.log" 2>&1 &
+  log "Port forward 127.0.0.1:$1 started"
+}
+
+# WebView debugging: serves the phone's Safari tabs and inspectable WebViews over the Chrome DevTools Protocol.
+# Needs Settings → Apps → Safari → Advanced → Web Inspector on the phone, and isInspectable on an app's WKWebView.
+ensure_cdp() {
+  [ "$CDP_PORT" -gt 0 ] || return 0
+  running "webinspector cdp --udid $UDID " && return 0
+  pkill -f 'webinspector cdp'; sleep 1
+  pymobiledevice3 webinspector cdp --udid "$UDID" --host 127.0.0.1 --port "$CDP_PORT" >> "$LOG_DIR/cdp.log" 2>&1 &
+  log "CDP bridge 127.0.0.1:$CDP_PORT started"
 }
 # 手机重启后开发者镜像会掉;已挂载时 auto-mount 约 1 秒直接跳过
 start_wda() {
@@ -105,7 +117,9 @@ while :; do
     fi
   fi
 
-  if ! running 'usbmux forward' || [ "${fwd_udid:-}" != "$UDID" ]; then start_forward; fi
+  ensure_forward "$WDA_PORT"
+  ensure_forward "$MJPEG_PORT"
+  ensure_cdp
 
   bundle=$(wda_bundle)
   if [ -z "$bundle" ]; then
