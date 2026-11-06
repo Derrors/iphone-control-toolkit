@@ -16,6 +16,8 @@ iphone-mcp = "iphone_mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+# iphone_viewer runs on the host (iphonectl viewer), not in the container
+include = ["iphone_mcp*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
