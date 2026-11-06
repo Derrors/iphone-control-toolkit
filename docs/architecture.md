@@ -5,6 +5,7 @@
 ```
 ┌─────────────── 宿主机(Linux)────────────────────────────────────────────┐
 │  bin/iphonectl ── docker compose / docker exec                             │
+│  iphonectl viewer (Tk) ── stream 127.0.0.1:9100, input 127.0.0.1:8100     │
 │  Claude Code ── docker exec -i <容器> /opt/ictl/mcp-server.sh (stdio)      │
 │                                                                            │
 │  ┌──────────── 容器(privileged,host 网络,不对外开放端口)──────────────┐  │
@@ -12,6 +13,8 @@
 │  │   ├─ usbmuxd                    USB 通讯                             │  │
 │  │   ├─ ios tunnel --userspace     iOS 17+ 开发者服务隧道(不建网卡)    │  │
 │  │   ├─ pymobiledevice3 usbmux forward  WDA 端口 → 127.0.0.1:8100        │  │
+│  │   ├─ pymobiledevice3 usbmux forward  MJPEG stream → 127.0.0.1:9100    │  │
+│  │   ├─ pymobiledevice3 webinspector cdp  WebViews → 127.0.0.1:9222      │  │
 │  │   ├─ ios runwda                 启动手机上的 WebDriverAgent          │  │
 │  │   └─ resign-wda.sh(定期)       免费 Apple ID 重签                   │  │
 │  │ iphone-mcp(Python,MCP 服务)                                         │  │
