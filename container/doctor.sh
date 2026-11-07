@@ -87,10 +87,12 @@ else skip "WDA"; fi
 echo "== Live view and WebView debugging"
 if [ "$MJPEG_PORT" -eq 0 ]; then off "Live view" MJPEG_PORT
 elif check && [ -n "$bundle" ]; then
-  # the MJPEG stream never ends: an HTTP 200 before the timeout means it works
-  code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$MJPEG_PORT")
-  if [ "$code" = 200 ]; then ok "Live view" "http://127.0.0.1:$MJPEG_PORT, open it on the host with iphonectl viewer"
-  else warn "Live view unavailable" "served by WDA, so only once WDA is ready; see data/logs/forward.log"; fi
+  # the MJPEG stream never ends, so curl always times out; the headers tell it apart from another service on the port
+  head=$(curl -s -m 2 -o /dev/null -w '%{http_code} %{content_type}' "http://127.0.0.1:$MJPEG_PORT")
+  case $head in
+    "200 multipart/"*) ok "Live view" "http://127.0.0.1:$MJPEG_PORT, open it on the host with iphonectl viewer" ;;
+    *) warn "Live view unavailable" "served by WDA, so only once WDA is ready; is another service on port $MJPEG_PORT? see data/logs/forward.log" ;;
+  esac
 else skip "Live view"; fi
 
 if [ "$CDP_PORT" -eq 0 ]; then off "WebView debugging" CDP_PORT

@@ -66,7 +66,7 @@ Claude Code / any MCP client
 - **Alerts**: Telegram or Bark notifications when re-signing fails, the phone goes offline, or a passcode is needed after a reboot
 - **Optional auto-unlock**: the phone can lock normally; every passcode digit is verified, and a wrong passcode disables auto-unlock after one attempt
 - **Live viewer**: `iphonectl viewer` opens a desktop window with the phone's screen (up to ~25 fps over USB) that you control with mouse and keyboard, while the agent keeps working
-- **WebView debugging**: Safari tabs and inspectable WebViews (Capacitor, Cordova, your own `WKWebView`) are exposed over the Chrome DevTools Protocol, so tools can read the DOM and console directly instead of going through screenshots
+- **Optional WebView debugging**: Safari tabs and inspectable WebViews (Capacitor, Cordova, your own `WKWebView`) are exposed over the Chrome DevTools Protocol, so tools can read the DOM and console directly instead of going through screenshots
 - **Diagnostics**: `iphonectl doctor` checks every layer from USB to WebDriverAgent and tells you how to fix each failure
 
 ## Quick Start
@@ -131,9 +131,19 @@ iOS ignores system gestures that do not come from a finger, such as the swipe up
 
 It needs Python 3.11+ with Tk and Pillow on the host: `sudo apt install python3-tk python3-pil.imagetk` (Debian/Ubuntu) or `sudo pacman -S tk python-pillow` (Arch).
 
+If the phone is plugged into a headless host, run the viewer on your desktop from a checkout of this repository:
+
+```bash
+ssh -N -L 8100:127.0.0.1:8100 -L 9100:127.0.0.1:9100 your-host &
+PYTHONPATH=src python3 -m iphone_viewer
+```
+
 ## Debugging WebViews
 
-The container serves the phone's Safari tabs and inspectable WebViews over the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) on `127.0.0.1:9222`: `curl 127.0.0.1:9222/json` lists them, and anything that speaks CDP can attach to read the DOM, run JavaScript, or follow console output and network requests. For hybrid apps that is faster and more precise than the element tree or screenshots.
+This is off by default. Set `CDP_PORT=9222` in `.env` and run `iphonectl up`, and the container serves the phone's Safari tabs and inspectable WebViews over the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) on `127.0.0.1:9222`: `curl 127.0.0.1:9222/json` lists them, and anything that speaks CDP can attach to read the DOM, run JavaScript, or follow console output and network requests. For hybrid apps that is faster and more precise than the element tree or screenshots.
+
+> [!WARNING]
+> While it is on, any process on the host can read and script the phone's Safari tabs, including sites you are logged in to. The bridge has no authentication and does not check where a request comes from, so turn it on only while you need it and only on a host you trust.
 
 1. On the phone, turn on **Settings → Apps → Safari → Advanced → Web Inspector**.
 2. Your app's `WKWebView` must be inspectable (`isInspectable = true`, iOS 16.4+). Safari is always inspectable.
@@ -145,7 +155,7 @@ The container serves the phone's Safari tabs and inspectable WebViews over the [
 > ios: { webContentsDebuggingEnabled: !isReleaseBuild },
 > ```
 
-`iphonectl doctor` reports how many pages are inspectable. Set `MJPEG_PORT=0` or `CDP_PORT=0` in `.env` to turn the stream or the bridge off. Both ports listen on `127.0.0.1` only and have no authentication, like WebDriverAgent itself. To view the phone from another machine, use SSH port forwarding rather than binding them to other interfaces.
+`iphonectl doctor` reports how many pages are inspectable. Both the bridge and the live stream listen on `127.0.0.1` only and have no authentication, like WebDriverAgent itself; set `MJPEG_PORT=0` in `.env` to turn the stream off. To reach them from another machine, use SSH port forwarding rather than binding them to other interfaces.
 
 ## Everyday Commands
 
