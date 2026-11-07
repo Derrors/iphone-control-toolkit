@@ -4,4 +4,4 @@
 wda、hid、unlock、server 依赖 mcp SDK 和运行中的设备。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
