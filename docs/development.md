@@ -13,6 +13,11 @@ src/iphone_mcp/        MCP 服务
   hid.py               HID 后备路线
   unlock.py            自动解锁
   server.py            MCP 工具定义
+src/iphone_viewer/     实时画面窗口(iphonectl viewer),在宿主机上运行,不打进镜像
+  mjpeg.py             MJPEG 流解析(纯函数)
+  geometry.py          窗口像素和点的换算、鼠标操作转成手势(纯函数)
+  wda.py               精简的 WDA 客户端,加入已有会话
+  app.py               Tk 界面
 docker/                Dockerfile 和 Python 依赖锁定
 scripts/               发布用:收集 GPL/LGPL 组件的对应源码
 tests/unit/            不碰设备的单元测试
@@ -36,6 +41,8 @@ bin/iphonectl test-device '[["iphone_status", {}], ["iphone_screenshot", {}]]'
 ```
 
 截图保存在 `data/test-shots/`。
+
+`iphone_viewer/app.py` 的 Tk 界面没有单元测试(CI 里不一定有 Tk),改了它要在桌面上实际跑一次 `iphonectl viewer`。
 
 改了 `src/` 或 `container/` 后需要重建镜像:`bin/iphonectl up`(会自动构建)。
 

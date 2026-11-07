@@ -32,6 +32,17 @@
 | 游戏里 `iphone_list_elements` 返回空 | 游戏引擎把画面画在一块画布上,没有控件 | 用截图加坐标;小图标用区域放大 |
 | 被弹窗挡住的元素也列出来了 | 可见性按坐标判断 | 截图核对 |
 
+## 实时画面和 WebView 调试
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `iphonectl viewer` 提示缺少 Tk 和 Pillow | 宿主机的 Python 没装 Tk 支持 | 按提示安装,比如 `sudo apt install python3-tk python3-pil.imagetk` |
+| 提示 `Cannot open the viewer window` | 宿主机没有图形界面(比如 NAS) | 在桌面电脑上运行,用 SSH 转发 8100 和 9100 端口,见 README「实时画面」 |
+| 窗口里显示 `no stream` | MJPEG 流由 WDA 提供,WDA 就绪前没有画面 | 等 WDA 就绪;跑 `iphonectl doctor`,看 `data/logs/forward.log` |
+| WDA 正常,doctor 却报 `Live view unavailable` | 容器用 host 网络,9100 被宿主机上的其他服务占用(比如 node_exporter) | 停掉占用端口的服务,或设 `MJPEG_PORT=0` 关闭实时画面 |
+| 窗口里从底部上滑、下拉控制中心没反应 | iOS 忽略不是手指发出的系统手势 | 用窗口的 Home、Close app 按钮,或 URL Scheme |
+| doctor 报 `no inspectable pages` | 手机没开网页检查器,或 App 的 `WKWebView` 不可检查 | 设置 → App → Safari 浏览器 → 高级 → 网页检查器;App 要设 `isInspectable`,Capacitor 见 README |
+
 ## 自动解锁
 
 | 现象 | 原因 | 处理 |
