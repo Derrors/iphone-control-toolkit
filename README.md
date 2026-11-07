@@ -35,6 +35,9 @@
   </p>
 </div>
 
+> [!IMPORTANT]
+> **We recommend [iphone-control](https://github.com/Derrors/iphone-control) instead of this project.** It is the successor to iphone-control-toolkit: one Rust binary instead of a container of separate tools, runs on Linux or macOS, supports iPhone and iPad, and keeps the MCP tools compatible, so existing prompts and clients keep working.
+
 > [!NOTE]
 > Early release, tested on an **iPhone 15 Pro Max (iOS 27.0.1)** with an x86_64 Debian host. Other models, iOS 17–26 and arm64 hosts have not been tested yet — reports are welcome.
 

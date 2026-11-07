@@ -35,6 +35,9 @@
   </p>
 </div>
 
+> [!IMPORTANT]
+> **推荐改用 [iphone-control](https://github.com/Derrors/iphone-control) 替代本项目。** 它是 iphone-control-toolkit 的后继项目：用一个 Rust 程序取代容器里的多个组件，支持 Linux 和 macOS，支持 iPhone 和 iPad，并且保持 MCP 工具兼容，现有的提示词和客户端可以照常使用。
+
 > [!NOTE]
 > 早期版本，目前在 **iPhone 15 Pro Max（iOS 27.0.1）** 和 x86_64 Debian 宿主机上测试过。其他机型、iOS 17～26、arm64 宿主机还没有测试，欢迎反馈。
 
