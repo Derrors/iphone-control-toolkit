@@ -8,6 +8,9 @@ MISSING_GUI = """The viewer needs Tk and Pillow's Tk support ({error}). Install 
   Arch / Manjaro:   sudo pacman -S tk python-pillow
   Fedora:           sudo dnf install python3-tkinter python3-pillow-tk"""
 
+NO_DISPLAY = """Cannot open the viewer window ({error}). It needs a desktop session. On a headless host, either use
+X forwarding (ssh -X), or run it on your desktop and forward the ports, see "Live Viewer" in the README."""
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="iphonectl viewer",
@@ -21,6 +24,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     try:
+        import tkinter
+
         from .app import run
     except ImportError as e:  # tkinter or PIL.ImageTk missing
         sys.exit(MISSING_GUI.format(error=e))
@@ -28,6 +33,8 @@ def main(argv: list[str] | None = None) -> None:
         run(args.wda, args.mjpeg, args.fps, args.scale, args.quality)
     except WDAError as e:
         sys.exit(f"{e}\nIs the container running and WebDriverAgent ready? Check with: iphonectl doctor")
+    except tkinter.TclError as e:
+        sys.exit(NO_DISPLAY.format(error=e))
 
 
 if __name__ == "__main__":

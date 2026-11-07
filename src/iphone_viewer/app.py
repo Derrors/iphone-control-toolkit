@@ -1,17 +1,17 @@
 """Tk window: shows the live stream and turns mouse and keyboard input into touches on the phone."""
+import http.client
 import io
 import queue
 import threading
 import time
 import tkinter as tk
-import urllib.request
 from collections.abc import Callable
 
 from PIL import Image, ImageTk
 
 from .geometry import LongPress, Swipe, Tap, Viewport, classify
 from .mjpeg import iter_frames
-from .wda import WDAClient, WDAError
+from .wda import WDAClient, WDAError, open_direct
 
 SCROLL_POINTS = 120
 RECONNECT_SECONDS = 2
@@ -40,12 +40,12 @@ class FrameReader(threading.Thread):
     def run(self) -> None:
         while not self.stopped.is_set():
             try:
-                with urllib.request.urlopen(self.url, timeout=10) as stream:
+                with open_direct(self.url, timeout=10) as stream:
                     for frame in iter_frames(stream):
                         if self.stopped.is_set():
                             return
                         self._publish(frame)
-            except OSError as e:
+            except (OSError, http.client.HTTPException, ValueError) as e:
                 self._publish(e)
             self.stopped.wait(RECONNECT_SECONDS)
 
@@ -66,7 +66,7 @@ class ActionWorker(threading.Thread):
             job = self.jobs.get()
             try:
                 job()
-            except WDAError as e:
+            except Exception as e:  # one failed action must not end the thread, or all further input is lost
                 self.on_error(e)
 
 
@@ -86,8 +86,9 @@ class Viewer:
                   "relief": "flat", "bd": 0, "highlightthickness": 0, "padx": 10, "pady": 4}
         tk.Button(bar, text="⌂ Home", command=self.home, **button).pack(side="left", padx=(6, 3), pady=6)
         tk.Button(bar, text="✕ Close app", command=self.close_app, **button).pack(side="left", padx=3, pady=6)
-        self.status = tk.Label(bar, text="connecting…", fg="#888", bg="#111", anchor="e")
-        self.status.pack(side="right", padx=6)
+        # width=1 plus fill: a long message is clipped instead of widening the window, which would move the screen
+        self.status = tk.Label(bar, text="connecting…", fg="#888", bg="#111", anchor="w", width=1)
+        self.status.pack(side="left", fill="x", expand=True, padx=6)
 
         start_scale = min((self.root.winfo_screenheight() - 180) / self.screen_h, 1.6)
         self.canvas = tk.Canvas(self.root, width=round(self.screen_w * start_scale),
@@ -135,20 +136,27 @@ class Viewer:
 
     def poll_frames(self) -> None:
         try:
+            self.show_next_frame()
+        except Exception as e:  # e.g. a corrupt JPEG: skip it, the next frame replaces it
+            self.show_status(f"bad frame: {e}")
+        finally:
+            self.root.after(FRAME_POLL_MS, self.poll_frames)
+
+    def show_next_frame(self) -> None:
+        try:
             item = self.reader.latest.get_nowait()
         except queue.Empty:
             item = None
         if isinstance(item, Exception):
             self.show_status(f"no stream: {item}")
         elif item is not None:
-            self.last_frame = item
             self.draw(item)
+            self.last_frame = item
             self.frames_shown += 1
             elapsed = time.monotonic() - self.fps_since
             if elapsed >= 1:
                 self.show_status(f"{self.frames_shown / elapsed:.0f} fps")
                 self.frames_shown, self.fps_since = 0, time.monotonic()
-        self.root.after(FRAME_POLL_MS, self.poll_frames)
 
     def show_status(self, text: str) -> None:
         self.status.config(text=text)

@@ -3,12 +3,16 @@
 WebDriverAgent runs a single session: opening a new one ends the current one, which would break the MCP server's
 session. So the client joins the session that is already active and only opens one when there is none.
 """
+import http.client
 import json
 import threading
 import urllib.error
 import urllib.request
 
 SPRINGBOARD = "com.apple.springboard"
+
+# The host may have HTTP_PROXY set and urllib would send even 127.0.0.1 through it
+open_direct = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
 
 
 class WDAError(Exception):
@@ -27,22 +31,25 @@ class WDAClient:
         req = urllib.request.Request(self.base_url + path, data=data, method=method,
                                      headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with open_direct(req, timeout=self.timeout) as r:
                 resp = json.loads(r.read())
         except urllib.error.HTTPError as e:
             try:
                 resp = json.loads(e.read())
             except ValueError:
                 raise WDAError(f"HTTP {e.code}") from None
-        except (urllib.error.URLError, OSError, ValueError) as e:
+        except (OSError, http.client.HTTPException, ValueError) as e:
             raise WDAError(f"WebDriverAgent not reachable at {self.base_url}: {e}") from None
         value = resp.get("value")
         if isinstance(value, dict) and "error" in value:
-            raise WDAError(f"{value['error']}: {(value.get('message') or '').splitlines()[0]}")
+            message = (value.get("message") or "").partition("\n")[0]
+            raise WDAError(f"{value['error']}: {message}")
         return resp
 
-    def _open_session(self, join_existing: bool) -> str:
-        if join_existing and (sid := self.request("GET", "/status").get("sessionId")):
+    def _open_session(self, stale: str | None) -> str:
+        """Join the active session; open one only if there is none or the active one is the one that just went stale."""
+        sid = self.request("GET", "/status").get("sessionId")
+        if sid and sid != stale:
             return sid
         resp = self.request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})
         return resp.get("sessionId") or resp["value"]["sessionId"]
@@ -50,15 +57,16 @@ class WDAClient:
     def session_request(self, method: str, path: str, body: dict | None = None) -> dict:
         """Request within the session; if the session is gone (WebDriverAgent restarted), open a new one once."""
         with self._lock:
+            stale = None
             for attempt in range(2):
                 if self._sid is None:
-                    self._sid = self._open_session(join_existing=attempt == 0)
+                    self._sid = self._open_session(stale)
                 try:
                     return self.request(method, f"/session/{self._sid}{path}", body)
                 except WDAError as e:
                     if attempt or "session" not in str(e):
                         raise
-                    self._sid = None
+                    stale, self._sid = self._sid, None
         raise AssertionError("unreachable")
 
     def screen_size(self) -> tuple[float, float]:
