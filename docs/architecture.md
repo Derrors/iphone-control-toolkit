@@ -5,6 +5,7 @@
 ```
 ┌─────────────── 宿主机(Linux)────────────────────────────────────────────┐
 │  bin/iphonectl ── docker compose / docker exec                             │
+│  iphonectl viewer (Tk) ── stream 127.0.0.1:9100, input 127.0.0.1:8100      │
 │  Claude Code ── docker exec -i <容器> /opt/ictl/mcp-server.sh (stdio)      │
 │                                                                            │
 │  ┌──────────── 容器(privileged,host 网络,不对外开放端口)──────────────┐  │
@@ -12,6 +13,8 @@
 │  │   ├─ usbmuxd                    USB 通讯                             │  │
 │  │   ├─ ios tunnel --userspace     iOS 17+ 开发者服务隧道(不建网卡)    │  │
 │  │   ├─ pymobiledevice3 usbmux forward  WDA 端口 → 127.0.0.1:8100        │  │
+│  │   ├─ pymobiledevice3 usbmux forward  MJPEG stream → 127.0.0.1:9100    │  │
+│  │   ├─ pymobiledevice3 webinspector cdp  WebViews → :9222(默认关闭)     │  │
 │  │   ├─ ios runwda                 启动手机上的 WebDriverAgent          │  │
 │  │   └─ resign-wda.sh(定期)       免费 Apple ID 重签                   │  │
 │  │ iphone-mcp(Python,MCP 服务)                                         │  │
@@ -35,6 +38,20 @@
 MCP 工具优先走 WDA;WDA 连不上时,截图、点击、滑动、按键、英文输入自动改走 HID。
 坐标统一用「点」(pt):截图已缩放到点尺寸,图上的像素坐标可以直接拿去点。
 
+## WDA 会话
+
+WDA 同一时间只有一个会话,新建会话会结束当前的会话。MCP 服务和 `iphonectl viewer` 都要用它,所以两边都先从
+`/status` 读出当前活动的会话并加入;只有没有活动会话,或者活动的正是自己刚失效的那个时,才新建一个。
+否则 WDA 重启后两边会不停地结束对方的会话。
+
+## 实时画面和 WebView 调试
+
+- **实时画面**:WDA 自带 MJPEG 服务(手机上的 9100 端口),supervisor 把它转发到 `127.0.0.1:9100`。
+  `iphonectl viewer` 在宿主机上运行(`src/iphone_viewer/`,不打进镜像),从这里取画面,操作走 WDA 端口。
+  帧率、缩放和画质通过 WDA 的 `/appium/settings` 设置。
+- **WebView 调试**:默认关闭。开启后 supervisor 运行 `pymobiledevice3 webinspector cdp`,把手机的 Web Inspector
+  协议翻译成 Chrome DevTools Protocol,监听 `127.0.0.1:$CDP_PORT`。
+
 ## 守护(supervisor.sh)
 
 | 检测到 | 处理 |
@@ -42,7 +59,8 @@ MCP 工具优先走 WDA;WDA 连不上时,截图、点击、滑动、按键、英
 | USB 上有 Apple 设备,但 usbmuxd 看不到 | 30 秒后重启 usbmuxd(容器里没有 udev,收不到热插拔) |
 | 手机离线超过 `OFFLINE_ALERT_MIN` 分钟 | 推送提醒;重新连上再推一条 |
 | 隧道 90 秒没建立 | 重启隧道(go-ios 失败后有时不再重试) |
-| 端口转发不在,或换了手机 | 重新拉起 |
+| 某个端口转发(WDA、MJPEG 各一个)不在,或换了手机 | 只重新拉起那一个,不影响其他转发 |
+| 开启了 WebView 调试,CDP 桥接进程不在 | 重新拉起 |
 | WDA 连续 30 秒不响应 | 先补挂开发者镜像,再重启 WDA;失败后间隔 1→2→4→5 分钟 |
 | WDA 卡在「Enable UI Automation」密码框 | 推送「请输锁屏密码」,保持每分钟重试;恢复后推送「已恢复」 |
 | 本机 runwda 进程不在 | 即使手机上残留的 WDA 还在响应,也视为不可用(它几十秒后会自己退出) |

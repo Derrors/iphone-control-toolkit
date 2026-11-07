@@ -10,6 +10,7 @@ warn() { echo "⚠️  $1${2:+  $2}"; }
 bad()  { echo "❌ $1${2:+  $2}"; [ -n "${3:-}" ] && echo "     → $3"; fails=$((fails + 1)); }
 skip() { echo "⏭  $1  (跳过:$blocked)"; }
 check() { [ -z "$blocked" ]; }
+off()  { echo "⏭  $1  (off: $2=0)"; }
 
 echo "== 设备连接"
 if pgrep -x usbmuxd >/dev/null; then ok "usbmuxd 在运行"; else
@@ -82,6 +83,27 @@ if check && [ -n "$bundle" ]; then
     bad "WDA 不可用" "" "首次安装要在 设置 → 通用 → VPN 与设备管理 里信任开发者;看 data/logs/wda.log"
   fi
 else skip "WDA"; fi
+
+echo "== Live view and WebView debugging"
+if [ "$MJPEG_PORT" -eq 0 ]; then off "Live view" MJPEG_PORT
+elif check && [ -n "$bundle" ]; then
+  # the MJPEG stream never ends, so curl always times out; the headers tell it apart from another service on the port
+  head=$(curl -s -m 2 -o /dev/null -w '%{http_code} %{content_type}' "http://127.0.0.1:$MJPEG_PORT")
+  case $head in
+    "200 multipart/"*) ok "Live view" "http://127.0.0.1:$MJPEG_PORT, open it on the host with iphonectl viewer" ;;
+    *) warn "Live view unavailable" "served by WDA, so only once WDA is ready; is another service on port $MJPEG_PORT? see data/logs/forward.log" ;;
+  esac
+else skip "Live view"; fi
+
+if [ "$CDP_PORT" -eq 0 ]; then off "WebView debugging" CDP_PORT
+elif check; then
+  if pages=$(curl -sf -m 5 "http://127.0.0.1:$CDP_PORT/json"); then
+    n=$(printf '%s' "$pages" | grep -o '"webSocketDebuggerUrl"' | wc -l)
+    if [ "$n" -gt 0 ]; then ok "WebView debugging" "$n inspectable page(s), listed at http://127.0.0.1:$CDP_PORT/json"
+    else warn "WebView debugging: no inspectable pages" \
+      "turn on Settings → Apps → Safari → Advanced → Web Inspector; an app's WKWebView needs isInspectable"; fi
+  else warn "WebView debugging unavailable" "see data/logs/cdp.log"; fi
+else skip "WebView debugging"; fi
 
 echo "== 附加功能"
 if [ -n "${TG_BOT_TOKEN:-}${BARK_KEY:-}" ]; then ok "通知已配置" "测试:iphonectl notify-test"; else

@@ -9,6 +9,10 @@ STATE_DIR=$DATA/state
 SECRETS_DIR=$DATA/secrets
 PLUME_DIR=$DATA/plume
 WDA_PORT=${WDA_PORT:-8100}
+# Live screen (WDA's MJPEG stream) and WebView debugging (Chrome DevTools Protocol) ports, 127.0.0.1 only; 0 = off.
+# CDP stays off unless asked for: it gives access to the phone's logged-in Safari tabs
+MJPEG_PORT=${MJPEG_PORT:-9100}
+CDP_PORT=${CDP_PORT:-0}
 WDA_UNSIGNED=/opt/ictl/wda/WDA-unsigned.ipa
 PROFILE=$CERT_DIR/free-dev.mobileprovision
 PUID=${PUID:-1000}

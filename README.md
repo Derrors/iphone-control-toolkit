@@ -68,6 +68,8 @@ Claude Code / any MCP client
 - **Runs unattended**: recovers from replugging, phone reboots, tunnel drops and WebDriverAgent crashes; re-signs WebDriverAgent with a free Apple ID before the 7-day profile expires
 - **Alerts**: Telegram or Bark notifications when re-signing fails, the phone goes offline, or a passcode is needed after a reboot
 - **Optional auto-unlock**: the phone can lock normally; every passcode digit is verified, and a wrong passcode disables auto-unlock after one attempt
+- **Live viewer**: `iphonectl viewer` opens a desktop window with the phone's screen (up to ~25 fps over USB) that you control with mouse and keyboard, while the agent keeps working
+- **Optional WebView debugging**: Safari tabs and inspectable WebViews (Capacitor, Cordova, your own `WKWebView`) are exposed over the Chrome DevTools Protocol, so tools can read the DOM and console directly instead of going through screenshots
 - **Diagnostics**: `iphonectl doctor` checks every layer from USB to WebDriverAgent and tells you how to fix each failure
 
 ## Quick Start
@@ -112,12 +114,59 @@ To build the image from source instead of pulling it, set `IMAGE=iphone-control-
 
 Screenshot pixels are tap coordinates, so the agent can tap what it sees. Games, maps and video players draw their own UI and have no element tree — use screenshots and coordinates there.
 
+## Live Viewer
+
+```bash
+bin/iphonectl viewer
+```
+
+A window on the host shows the phone's screen live, streamed from WebDriverAgent's MJPEG server, and passes your input on to the phone. It runs next to the MCP server and shares its WebDriverAgent session, so you can watch the agent work or take over.
+
+| Input | On the phone |
+| --- | --- |
+| Click / hold | Tap / long press |
+| Drag, mouse wheel | Swipe, scroll |
+| Keyboard | Types into the focused field |
+| Esc, right click, **⌂ Home** | Home button |
+| **✕ Close app** | Ends the foreground app, like swiping it away in the app switcher |
+
+iOS ignores system gestures that do not come from a finger, such as the swipe up from the bottom edge, so the window has buttons for them. Resize it freely. Options such as frame rate and resolution: `iphonectl viewer --help`.
+
+It needs Python 3.11+ with Tk and Pillow on the host: `sudo apt install python3-tk python3-pil.imagetk` (Debian/Ubuntu) or `sudo pacman -S tk python-pillow` (Arch).
+
+If the phone is plugged into a headless host, run the viewer on your desktop from a checkout of this repository:
+
+```bash
+ssh -N -L 8100:127.0.0.1:8100 -L 9100:127.0.0.1:9100 your-host &
+PYTHONPATH=src python3 -m iphone_viewer
+```
+
+## Debugging WebViews
+
+This is off by default. Set `CDP_PORT=9222` in `.env` and run `iphonectl up`, and the container serves the phone's Safari tabs and inspectable WebViews over the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) on `127.0.0.1:9222`: `curl 127.0.0.1:9222/json` lists them, and anything that speaks CDP can attach to read the DOM, run JavaScript, or follow console output and network requests. For hybrid apps that is faster and more precise than the element tree or screenshots.
+
+> [!WARNING]
+> While it is on, any process on the host can read and script the phone's Safari tabs, including sites you are logged in to. The bridge has no authentication and does not check where a request comes from, so turn it on only while you need it and only on a host you trust.
+
+1. On the phone, turn on **Settings → Apps → Safari → Advanced → Web Inspector**.
+2. Your app's `WKWebView` must be inspectable (`isInspectable = true`, iOS 16.4+). Safari is always inspectable.
+
+> [!TIP]
+> **Capacitor apps built without Xcode** (for example with [xtool](https://github.com/xtool-org/xtool)): Capacitor only makes the WebView inspectable in debug builds, which it detects through a `CAPACITOR_DEBUG` Info.plist key that only Xcode's build settings fill in. Set it explicitly in `capacitor.config.ts`, for development builds only:
+>
+> ```ts
+> ios: { webContentsDebuggingEnabled: !isReleaseBuild },
+> ```
+
+`iphonectl doctor` reports how many pages are inspectable. Both the bridge and the live stream listen on `127.0.0.1` only and have no authentication, like WebDriverAgent itself; set `MJPEG_PORT=0` in `.env` to turn the stream off. To reach them from another machine, use SSH port forwarding rather than binding them to other interfaces.
+
 ## Everyday Commands
 
 | Command | What it does |
 | --- | --- |
 | `iphonectl status` | Container status and recent supervisor log |
 | `iphonectl doctor` | Layer-by-layer health check with a fix for each failure |
+| `iphonectl viewer` | Live view of the screen, controlled with mouse and keyboard |
 | `iphonectl logs [name] [-f]` | Logs: `supervisor`, `wda`, `tunnel`, `resign`, `notify`, … |
 | `iphonectl resign [--force]` | Re-sign WebDriverAgent if it expires soon (or now) |
 | `iphonectl login` | Sign in to the Apple ID again when the session expires |
@@ -143,6 +192,7 @@ The detailed docs are in Chinese for now.
 - Free Apple ID profiles last 7 days. Re-signing is automatic, but an expired Apple ID session needs `iphonectl login`
 - After the phone reboots, you must enter the passcode once on the phone to allow UI automation — iOS requires this
 - Elements hidden behind a popup may still be listed, because visibility is judged by position
+- System gestures (home indicator swipe, Control Center, Notification Center) cannot be injected from outside; use the Home button, closing apps by bundle ID, and URL schemes instead
 
 > [!WARNING]
 > This toolkit can fully control your phone. An agent may tap payment, delete or send buttons — keep tool-call confirmation on in your MCP client. Not affiliated with Apple; use it only with devices you own.

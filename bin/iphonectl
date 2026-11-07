@@ -57,6 +57,15 @@ cmd_shell()   { need_running; inct bash; }
 cmd_login()   { need_running; inct plumesign account login "$@"; }
 cmd_resign()  { need_running; inc /opt/ictl/resign-wda.sh "$@"; }
 cmd_notify_test() { need_running; inc /opt/ictl/notify.sh --test; }
+
+# Live view window. Runs on the host (needs Python with Tk and Pillow) and drives the phone through WDA and the MJPEG port on 127.0.0.1
+cmd_viewer() {
+  need_running
+  local mjpeg; mjpeg=$(env_get MJPEG_PORT); mjpeg=${mjpeg:-9100}
+  [ "$mjpeg" -gt 0 ] || die "The live view is turned off (MJPEG_PORT=0 in .env)"
+  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m iphone_viewer \
+    --wda "http://127.0.0.1:$PORT" --mjpeg "http://127.0.0.1:$mjpeg" "$@"
+}
 cmd_unlock_reset() { need_running; inc rm -f /data/logs/UNLOCK-DISABLED; say "已恢复自动解锁"; }
 
 cmd_status() {
@@ -198,6 +207,7 @@ usage() {
   passcode set|clear  设置/删除锁屏密码(自动解锁)
   unlock-reset        自动解锁因输错被停用后,核对密码再恢复
   mcp [install]       显示/执行注册到 Claude Code 的命令
+  viewer [options]    Live view of the screen, controlled with mouse and keyboard (needs python3-tk and Pillow; --help)
 
 容器
   up | down | restart | pull | build | shell
@@ -210,7 +220,7 @@ EOF
 
 cmd=${1:-help}; shift || true
 case $cmd in
-  setup|up|down|restart|pull|build|status|doctor|logs|resign|login|shell|passcode|mcp)
+  setup|up|down|restart|pull|build|status|doctor|logs|resign|login|shell|passcode|mcp|viewer)
     "cmd_$cmd" "$@" ;;
   notify-test) cmd_notify_test ;;
   unlock-reset) cmd_unlock_reset ;;

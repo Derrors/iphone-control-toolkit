@@ -46,18 +46,28 @@ def request(method, path, body=None, timeout=30):
 _sid = None
 
 
+def _open_session(stale=None):
+    """WDA 只有一个会话,新建会结束当前会话(比如 iphonectl viewer 的),所以先加入;
+    只有没有活动会话,或活动的就是刚失效的那个时才新建,否则两个客户端会一直互相踢掉对方。"""
+    sid = request("GET", "/status").get("sessionId")
+    if sid and sid != stale:
+        return sid
+    r = request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})
+    return r.get("sessionId") or r["value"]["sessionId"]
+
+
 def session(method, path, body=None, timeout=30):
     """带会话的 WDA 请求;WDA 重启后旧会话失效,自动重建一次。"""
     global _sid
+    stale = None
     for attempt in range(2):
         if _sid is None:
-            r = request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})
-            _sid = r.get("sessionId") or r["value"]["sessionId"]
+            _sid = _open_session(stale)
         try:
             return request(method, f"/session/{_sid}{path}", body, timeout)
         except WDAError as e:
             if attempt == 0 and "session" in e.error:
-                _sid = None
+                stale, _sid = _sid, None
                 continue
             raise
 

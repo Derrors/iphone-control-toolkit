@@ -68,6 +68,8 @@ Claude Code / 任意 MCP 客户端
 - **无人值守**：USB 重插、手机重启、隧道断开、WebDriverAgent 崩溃后都能自动恢复；免费 Apple ID 的描述文件 7 天到期前自动重签
 - **通知**：重签失败、手机离线、重启后需要输入密码时，推送 Telegram 或 Bark
 - **可选自动解锁**：手机可以正常锁屏；每一位密码都会核对，密码配置错误时输错一次就停用自动解锁
+- **实时画面**：`iphonectl viewer` 在桌面上打开一个窗口，实时显示手机屏幕（USB 下最高约 25 fps），可以用鼠标和键盘操作，AI 照常工作
+- **可选的 WebView 调试**：通过 Chrome DevTools Protocol 开放 Safari 标签页和可检查的 WebView（Capacitor、Cordova、你自己的 `WKWebView`），工具可以直接读 DOM 和控制台，不用靠截图
 - **诊断**：`iphonectl doctor` 从 USB 到 WebDriverAgent 逐层检查，每项失败都给出修复办法
 
 ## 快速开始
@@ -112,12 +114,59 @@ bin/iphonectl mcp install    # 注册到 Claude Code
 
 截图的像素坐标就是点击坐标，AI 看到哪里就能点哪里。游戏、地图、视频播放器自己绘制界面，没有元素树，只能看截图按坐标操作。
 
+## 实时画面
+
+```bash
+bin/iphonectl viewer
+```
+
+在宿主机上打开一个窗口，实时显示手机屏幕（来自 WebDriverAgent 的 MJPEG 流），并把你的操作转发给手机。它和 MCP 服务同时运行、共用同一个 WebDriverAgent 会话，你可以看着 AI 操作，也可以随时接手。
+
+| 操作 | 手机上的效果 |
+| --- | --- |
+| 单击 / 按住 | 点击 / 长按 |
+| 拖动、滚轮 | 滑动、滚动 |
+| 键盘 | 在当前输入框里输入 |
+| Esc、右键、**⌂ Home** | Home 键 |
+| **✕ Close app** | 结束前台 App，相当于在多任务界面里把它划掉 |
+
+iOS 会忽略不是手指发出的系统手势，比如从屏幕底部上滑，所以窗口提供了对应的按钮。窗口大小可以随意调整。帧率、分辨率等选项见 `iphonectl viewer --help`。
+
+宿主机需要 Python 3.11+，以及 Tk 和 Pillow：`sudo apt install python3-tk python3-pil.imagetk`（Debian/Ubuntu）或 `sudo pacman -S tk python-pillow`（Arch）。
+
+手机接在没有图形界面的主机（比如 NAS）上时，在桌面电脑上克隆本仓库后运行：
+
+```bash
+ssh -N -L 8100:127.0.0.1:8100 -L 9100:127.0.0.1:9100 你的主机 &
+PYTHONPATH=src python3 -m iphone_viewer
+```
+
+## 调试 WebView
+
+默认关闭。在 `.env` 里设置 `CDP_PORT=9222` 后运行 `iphonectl up`，容器就会在 `127.0.0.1:9222` 上通过 [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) 开放手机的 Safari 标签页和可检查的 WebView：`curl 127.0.0.1:9222/json` 列出它们，任何支持 CDP 的工具都可以连上去读 DOM、执行 JavaScript、查看控制台输出和网络请求。对混合开发的 App 来说，这比元素树和截图更快也更准。
+
+> [!WARNING]
+> 开启期间，宿主机上的任何进程都能读取和操作手机的 Safari 标签页，包括你已登录的网站。桥接没有认证，也不检查请求来源，请只在需要时开启，并且只在你信任的主机上开启。
+
+1. 在手机上打开 **设置 → App → Safari 浏览器 → 高级 → 网页检查器**。
+2. App 里的 `WKWebView` 必须可检查（`isInspectable = true`，iOS 16.4+）。Safari 始终可检查。
+
+> [!TIP]
+> **不用 Xcode 构建的 Capacitor App**（比如用 [xtool](https://github.com/xtool-org/xtool)）：Capacitor 只在调试构建里让 WebView 可检查，而它是通过 Info.plist 里的 `CAPACITOR_DEBUG` 判断调试构建的，这个键只有 Xcode 的构建设置会填。请在 `capacitor.config.ts` 里显式设置，并且只用于开发构建：
+>
+> ```ts
+> ios: { webContentsDebuggingEnabled: !isReleaseBuild },
+> ```
+
+`iphonectl doctor` 会报告有几个可检查的页面。CDP 桥接和实时画面都只监听 `127.0.0.1`，和 WebDriverAgent 一样没有认证；不需要实时画面时，在 `.env` 里设置 `MJPEG_PORT=0` 关闭。要从其他机器访问，请用 SSH 端口转发，不要把它们绑到其他网卡上。
+
 ## 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
 | `iphonectl status` | 容器状态和最近的守护日志 |
 | `iphonectl doctor` | 逐层诊断，每项失败都给出修复办法 |
+| `iphonectl viewer` | 实时查看屏幕，用鼠标和键盘操作 |
 | `iphonectl logs [名字] [-f]` | 看日志：`supervisor`、`wda`、`tunnel`、`resign`、`notify` 等 |
 | `iphonectl resign [--force]` | 快过期时重签 WebDriverAgent；`--force` 立即重签 |
 | `iphonectl login` | Apple ID 登录过期时重新登录 |
@@ -141,6 +190,7 @@ bin/iphonectl mcp install    # 注册到 Claude Code
 - 免费 Apple ID 的描述文件 7 天过期。重签是自动的，但 Apple ID 登录过期后要运行 `iphonectl login`
 - 手机重启后，要在手机上输一次锁屏密码才能启用 UI 自动化，这是 iOS 的要求
 - 可见性按坐标判断，被弹窗挡住的元素也可能被列出来
+- 系统手势（底部上滑、控制中心、通知中心）无法从外部注入；请改用 Home 键、按 Bundle ID 结束 App 和 URL Scheme
 
 > [!WARNING]
 > 这个工具能完全控制你的手机。AI 可能点到付款、删除、发送等按钮，请在 MCP 客户端里保持工具调用确认。本项目与 Apple 无关，请只用于你自己的设备。
